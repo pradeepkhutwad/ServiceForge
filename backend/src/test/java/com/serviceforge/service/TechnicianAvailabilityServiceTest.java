@@ -10,14 +10,6 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * Note for anyone extending this suite: this class covers the happy path and the one conflict
- * case Feature 1 actually catches (an exact start-time match). It does NOT test a genuine
- * interval overlap with a different start time — see
- * pipeline/features/feature-1-technician-availability.md, "Known issue," and
- * TechnicianAvailabilityService.bookJob(...) for why. Adding that test is part of the exercise,
- * not an oversight to quietly fix here.
- */
 class TechnicianAvailabilityServiceTest {
 
     private MockDataStore dataStore;
@@ -32,7 +24,7 @@ class TechnicianAvailabilityServiceTest {
 
     @Test
     void booksAJobForAnAvailableTechnician() {
-        LocalDateTime start = LocalDateTime.now().withHour(16).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime start = LocalDateTime.now().withHour(17).withMinute(0).withSecond(0).withNano(0);
         LocalDateTime end = start.plusHours(1);
 
         Job job = service.bookJob(1L, "New Customer", start, end);
@@ -42,10 +34,53 @@ class TechnicianAvailabilityServiceTest {
     }
 
     @Test
+    void rejectsABookingThatOverlapsAnExistingJobWithADifferentStartTime() {
+        LocalDateTime start = todayAt(10, 0);
+        LocalDateTime end = todayAt(12, 0);
+
+        assertThrows(IllegalStateException.class, () -> service.bookJob(1L, "Conflicting Customer", start, end));
+    }
+
+    @Test
+    void rejectsABookingThatStartsBeforeTheTravelBufferAfterAnExistingJob() {
+        LocalDateTime start = todayAt(11, 30);
+        LocalDateTime end = todayAt(12, 30);
+
+        assertThrows(IllegalStateException.class, () -> service.bookJob(1L, "Conflicting Customer", start, end));
+    }
+
+    @Test
+    void rejectsABookingThatEndsTooCloseBeforeAnExistingJob() {
+        LocalDateTime start = todayAt(7, 30);
+        LocalDateTime end = todayAt(8, 30);
+
+        assertThrows(IllegalStateException.class, () -> service.bookJob(1L, "Conflicting Customer", start, end));
+    }
+
+    @Test
+    void allowsABookingWhenTheTravelBufferIsExactlySatisfied() {
+        LocalDateTime start = todayAt(11, 45);
+        LocalDateTime end = todayAt(12, 45);
+
+        Job job = service.bookJob(1L, "New Customer", start, end);
+
+        assertEquals("New Customer", job.getCustomerName());
+    }
+
+    @Test
+    void allowsABookingBeforeAnExistingJobWhenTheTravelBufferIsExactlySatisfied() {
+        LocalDateTime start = todayAt(8, 0);
+        LocalDateTime end = todayAt(8, 15);
+
+        Job job = service.bookJob(1L, "New Customer", start, end);
+
+        assertEquals("New Customer", job.getCustomerName());
+    }
+
+    @Test
     void rejectsABookingAtAnIdenticalStartTimeAsAnExistingJob() {
-        LocalDateTime start = LocalDateTime.now().withHour(9).withMinute(0).withSecond(0).withNano(0);
+        LocalDateTime start = todayAt(9, 0);
         LocalDateTime end = start.plusHours(1);
-        // Technician 1 already has a seeded job starting at 09:00 (see MockDataStore.seed()).
 
         assertThrows(IllegalStateException.class, () -> service.bookJob(1L, "Conflicting Customer", start, end));
     }
@@ -56,5 +91,9 @@ class TechnicianAvailabilityServiceTest {
         LocalDateTime end = start.plusHours(1);
 
         assertThrows(IllegalArgumentException.class, () -> service.bookJob(999L, "Nobody", start, end));
+    }
+
+    private LocalDateTime todayAt(int hour, int minute) {
+        return LocalDateTime.now().withHour(hour).withMinute(minute).withSecond(0).withNano(0);
     }
 }
